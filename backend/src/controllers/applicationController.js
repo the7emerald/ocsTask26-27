@@ -24,11 +24,15 @@ const getUserApplications = async (req, res) => {
 const updateApplicationStatus = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { profileCode, status } = req.body;
+        const userRole = req.user.role;
+        const { profileCode, status, entryNumber } = req.body;
 
         if (!profileCode || !status) {
             return res.status(400).json({ error: 'Profile code and status are required' });
         }
+
+        // Admin can act on behalf of a student by providing entryNumber
+        const targetEntryNumber = (userRole === 'admin' && entryNumber) ? entryNumber : userId;
 
         const validStatuses = ['Accepted', 'Rejected']; // Restrict to expected user actions
         if (!validStatuses.includes(status)) {
@@ -37,7 +41,7 @@ const updateApplicationStatus = async (req, res) => {
 
         const result = await db.query(
             'UPDATE public.application SET status = $1 WHERE entry_number = $2 AND profile_code = $3 RETURNING *',
-            [status, userId, profileCode]
+            [status, targetEntryNumber, profileCode]
         );
 
         if (result.rows.length === 0) {
@@ -52,7 +56,7 @@ const updateApplicationStatus = async (req, res) => {
                  WHERE entry_number = $1 
                    AND profile_code != $2 
                    AND status IN ('Applied', 'Selected')`,
-                [userId, profileCode]
+                [targetEntryNumber, profileCode]
             );
         }
 
@@ -64,25 +68,30 @@ const updateApplicationStatus = async (req, res) => {
     }
 };
 
+
 const applyForJob = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { profileCode } = req.body;
+        const userRole = req.user.role;
+        const { profileCode, entryNumber } = req.body;
 
         if (!profileCode) {
             return res.status(400).json({ error: 'Profile code is required' });
         }
 
+        // Admin can apply on behalf of a student by providing entryNumber
+        const targetEntryNumber = (userRole === 'admin' && entryNumber) ? entryNumber : userId;
+
         const result = await db.query(
             'INSERT INTO public.application (profile_code, entry_number) VALUES ($1, $2) RETURNING *',
-            [profileCode, userId]
+            [profileCode, targetEntryNumber]
         );
 
         res.json(result.rows[0]);
 
     } catch (error) {
         if (error.code === '23505') { // Unique constraint violation
-            return res.status(400).json({ error: 'You have already applied for this job' });
+            return res.status(400).json({ error: 'Already applied for this job' });
         }
         console.error('Error applying for job:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -92,24 +101,27 @@ const applyForJob = async (req, res) => {
 const updateRecruiterStatus = async (req, res) => {
     try {
         const userId = req.user.userId;
+        const userRole = req.user.role;
         const { profileCode, entryNumber, status } = req.body;
 
         if (!profileCode || !entryNumber || !status) {
             return res.status(400).json({ error: 'Profile code, entry number, and status are required' });
         }
 
-        // Verify profile ownership
-        const profileCheck = await db.query(
-            'SELECT recruiter_email FROM public.profile WHERE profile_code = $1',
-            [profileCode]
-        );
+        // Verify profile ownership (admin bypasses this check)
+        if (userRole !== 'admin') {
+            const profileCheck = await db.query(
+                'SELECT recruiter_email FROM public.profile WHERE profile_code = $1',
+                [profileCode]
+            );
 
-        if (profileCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Profile not found' });
-        }
+            if (profileCheck.rows.length === 0) {
+                return res.status(404).json({ error: 'Profile not found' });
+            }
 
-        if (profileCheck.rows[0].recruiter_email !== userId) {
-            return res.status(403).json({ error: 'Unauthorized: You can only update applications for your own profiles' });
+            if (profileCheck.rows[0].recruiter_email !== userId) {
+                return res.status(403).json({ error: 'Unauthorized: You can only update applications for your own profiles' });
+            }
         }
 
         const validStatuses = ['Selected', 'Not Selected'];

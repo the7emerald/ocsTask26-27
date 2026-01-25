@@ -49,16 +49,20 @@ const getRecruiterData = async (req, res) => {
 
 const createProfile = async (req, res) => {
     const userId = req.user.userId;
-    const { companyName, designation } = req.body;
+    const userRole = req.user.role;
+    const { companyName, designation, recruiterEmail } = req.body;
 
     if (!companyName || !designation) {
         return res.status(400).json({ error: 'Company name and designation are required' });
     }
 
+    // Admin can specify recruiterEmail, otherwise use logged-in user's ID
+    const targetRecruiterEmail = (userRole === 'admin' && recruiterEmail) ? recruiterEmail : userId;
+
     try {
         const result = await db.query(
             'INSERT INTO public.profile (company_name, designation, recruiter_email) VALUES ($1, $2, $3) RETURNING *',
-            [companyName, designation, userId]
+            [companyName, designation, targetRecruiterEmail]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -69,6 +73,7 @@ const createProfile = async (req, res) => {
 
 const deleteProfile = async (req, res) => {
     const userId = req.user.userId;
+    const userRole = req.user.role;
     const { profileCode } = req.body;
 
     if (!profileCode) {
@@ -76,21 +81,28 @@ const deleteProfile = async (req, res) => {
     }
 
     try {
-        // Check ownership before deleting
-        const profileCheck = await db.query(
-            'SELECT recruiter_email FROM public.profile WHERE profile_code = $1',
-            [profileCode]
-        );
+        // Check ownership before deleting (admin bypasses this check)
+        if (userRole !== 'admin') {
+            const profileCheck = await db.query(
+                'SELECT recruiter_email FROM public.profile WHERE profile_code = $1',
+                [profileCode]
+            );
 
-        if (profileCheck.rows.length === 0) {
+            if (profileCheck.rows.length === 0) {
+                return res.status(404).json({ error: 'Profile not found' });
+            }
+
+            if (profileCheck.rows[0].recruiter_email !== userId) {
+                return res.status(403).json({ error: 'Unauthorized: You can only delete your own profiles' });
+            }
+        }
+
+        const result = await db.query('DELETE FROM public.profile WHERE profile_code = $1 RETURNING *', [profileCode]);
+
+        if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Profile not found' });
         }
 
-        if (profileCheck.rows[0].recruiter_email !== userId) {
-            return res.status(403).json({ error: 'Unauthorized: You can only delete your own profiles' });
-        }
-
-        await db.query('DELETE FROM public.profile WHERE profile_code = $1', [profileCode]);
         res.json({ message: 'Profile deleted successfully' });
 
     } catch (error) {
