@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import MD5 from 'crypto-js/md5';
 import './Login.css';
 
 const Login = () => {
+    const navigate = useNavigate();
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -34,7 +36,16 @@ const Login = () => {
             const data = await response.json();
             console.log('Login successful:', data);
 
-            alert('Login Successful!');
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('userRole', data.role);
+
+            if (data.role === 'student') {
+                navigate('/student/dashboard');
+            } else if (data.role === 'admin') {
+                navigate('/admin/dashboard');
+            } else if (data.role === 'recruiter') {
+                navigate('/recruiter/dashboard');
+            }
 
         } catch (err) {
             setError(err.message || 'An error occurred during login');

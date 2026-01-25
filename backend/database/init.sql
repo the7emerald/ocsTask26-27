@@ -15,7 +15,7 @@ CREATE TABLE public.profile (
 CREATE TABLE public.application (
   profile_code   INTEGER NOT NULL,
   entry_number VARCHAR(64) NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'APPLIED',
+  status VARCHAR(32) NOT NULL DEFAULT 'Applied',
   PRIMARY KEY (profile_code, entry_number),
   FOREIGN KEY (profile_code) REFERENCES public.profile(profile_code) ON DELETE CASCADE,
   FOREIGN KEY (entry_number) REFERENCES public.users(userid) ON DELETE CASCADE
